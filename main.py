@@ -15,7 +15,6 @@ import time
 import webbrowser
 import csv
 
-
 # apis is list of virustotal APIs
 # get subdomains,siblings and resolutions of a domain
 def get_domain_info(domain, apis):
