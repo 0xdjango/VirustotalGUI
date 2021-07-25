@@ -5,7 +5,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QVBoxLayout, QWidget, QLCDNumber, QComboBox, \
     QCompleter, QGroupBox, QFormLayout, QPushButton, QPlainTextEdit, QMenuBar, QStatusBar, QListView, QListWidget, \
-    QSplitter, QFileDialog, QAbstractScrollArea, QTableWidgetItem, QTableWidget
+    QSplitter, QFileDialog, QAbstractScrollArea, QTableWidgetItem, QTableWidget, QProgressBar, QGridLayout
 import requests
 import sys
 from random import choice
@@ -16,7 +16,7 @@ import webbrowser
 import csv
 
 
-# apis is list of virustotal APIs 
+# apis is list of virustotal APIs
 # get subdomains,siblings and resolutions of a domain
 def get_domain_info(domain, apis):
     result = "EMPTY"
@@ -83,7 +83,6 @@ class Ui_MainWindow(QMainWindow):
 
         self.VT_Qline = QLineEdit(self.VirusTotal_GB)
         self.VT_Qline.setObjectName(u"VT_Qline")
-        self.VT_Qline.setText("varzesh3.ir")
 
         self.formLayout.setWidget(0, QFormLayout.FieldRole, self.VT_Qline)
 
@@ -102,32 +101,32 @@ class Ui_MainWindow(QMainWindow):
         self.ResultListView.setGeometry(QRect(10, 190, 191, 271))
         self.loadapis = QGroupBox(self.centralwidget)
         self.loadapis.setObjectName(u"loadapis")
-        self.loadapis.setGeometry(QRect(400, 20, 190, 131))
-        self.formLayout_2 = QFormLayout(self.loadapis)
-        self.formLayout_2.setObjectName(u"formLayout_2")
+        self.loadapis.setGeometry(QRect(370, 20, 217, 122))
+        self.gridLayout = QGridLayout(self.loadapis)
+        self.gridLayout.setObjectName(u"gridLayout")
         self.label = QLabel(self.loadapis)
         self.label.setObjectName(u"label")
 
-        self.formLayout_2.setWidget(0, QFormLayout.SpanningRole, self.label)
+        self.gridLayout.addWidget(self.label, 0, 0, 1, 2)
 
         self.filepath = QLineEdit(self.loadapis)
         self.filepath.setObjectName(u"filepath")
 
-        self.formLayout_2.setWidget(1, QFormLayout.SpanningRole, self.filepath)
+        self.gridLayout.addWidget(self.filepath, 1, 0, 1, 2)
 
         self.load_B = QPushButton(self.loadapis)
         self.load_B.setObjectName(u"load_B")
 
-        self.formLayout_2.setWidget(2, QFormLayout.LabelRole, self.load_B)
+        self.gridLayout.addWidget(self.load_B, 2, 0, 1, 1)
 
         self.browse_B = QPushButton(self.loadapis)
         self.browse_B.setObjectName(u"browse_B")
 
-        self.formLayout_2.setWidget(2, QFormLayout.FieldRole, self.browse_B)
+        self.gridLayout.addWidget(self.browse_B, 2, 1, 1, 1)
 
         self.about = QGroupBox(self.centralwidget)
         self.about.setObjectName(u"about")
-        self.about.setGeometry(QRect(9, 19, 374, 131))
+        self.about.setGeometry(QRect(9, 19, 351, 131))
         self.formLayout_3 = QFormLayout(self.about)
         self.formLayout_3.setObjectName(u"formLayout_3")
         self.help = QLabel(self.about)
@@ -170,14 +169,19 @@ class Ui_MainWindow(QMainWindow):
         self.CopyResult_B = QPushButton(self.splitter)
         self.CopyResult_B.setObjectName(u"CopyResult_B")
         self.splitter.addWidget(self.CopyResult_B)
+        self.progressBar = QProgressBar(self.centralwidget)
+        self.progressBar.setObjectName(u"progressBar")
+        self.progressBar.setGeometry(QRect(390, 470, 431, 23))
+        self.progressBar.setValue(0)
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 844, 22))
+        self.menubar.setGeometry(QRect(0, 0, 844, 26))
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QStatusBar(MainWindow)
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
+
 
         self.retranslateUi(MainWindow)
         self.load_B.clicked.connect(MainWindow.loadAPIs)
@@ -193,7 +197,7 @@ class Ui_MainWindow(QMainWindow):
 
         QMetaObject.connectSlotsByName(MainWindow)
         self.row_count = self.tableWidget.rowCount()
-
+        self.completed = 1
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"VirusTotal Helper 0.1", None))
         self.VirusTotal_GB.setTitle(QCoreApplication.translate("MainWindow", u"VirusTotal Actions", None))
@@ -283,13 +287,17 @@ class Ui_MainWindow(QMainWindow):
         # insert empty row
         self.tableWidget.insertRow(current_row)
         ports = "{},{}".format(is_80_open, is_443_open)
-        for k in range(self.tableWidget.columnCount()):
+        for k in ([0,1,2,3]):
             self.tableWidget.setItem(
                 current_row,
                 k,
                 QTableWidgetItem(k),
             )
 
+        self.completed += int(100*1/len(self.hosts))
+
+
+        self.progressBar.setValue(self.completed)
     def scan_hosts(self):
         self.hosts = []
         if self.ResultListView.count() > 2:
