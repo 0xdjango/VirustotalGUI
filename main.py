@@ -1,8 +1,11 @@
 import socket
 import threading
+import traceback
 
-from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir
+import PyQt5.QtCore
+from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir, QRunnable, pyqtSlot, QThreadPool, pyqtSignal, \
+    QObject, QTimer, QThread
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QVBoxLayout, QWidget, QLCDNumber, QComboBox, \
     QCompleter, QGroupBox, QFormLayout, QPushButton, QPlainTextEdit, QMenuBar, QStatusBar, QListView, QListWidget, \
     QSplitter, QFileDialog, QAbstractScrollArea, QTableWidgetItem, QTableWidget, QProgressBar, QGridLayout
@@ -12,13 +15,47 @@ from random import choice
 import ipaddress  # for ipv4 validation
 import os
 import time
-import webbrowser
+import webbrowser  # for opening cell double click into browser
 import csv
+
+
+class ScannerThread(QThread):
+    def __init__(self, hosts, ports):
+        QThread.__init__(self)
+        self.hosts = hosts
+        self.ports = ports
+        self.ip_address = ""
+        self.result = ""
+
+    def __del__(self):
+        self.wait()
+
+    def scan(self,host):
+        TCPsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        TCPsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        TCPsock.settimeout(1)
+        try:
+            self.ip_address = socket.gethostbyname(host)
+        except Exception as e:
+            print(e)
+
+
+        for port in self.ports:
+            try:
+                TCPsock.connect((host, port))
+                self.result += str(port) + ","
+            except Exception as e:
+                print(e)
+
+    def run(self):
+        for h in self.hosts:
+            self.scan(h)
+            self.emit(PyQt5.QtCore.PYQT_SIGNAL('add_host_to_table(QString,QString,QString)'), self.host, self.result, self.ip_address)
+
 
 # apis is list of virustotal APIs
 # get subdomains,siblings and resolutions of a domain
 def get_domain_info(domain, apis):
-    result = "EMPTY"
     url = 'https://www.virustotal.com/vtapi/v2/domain/report?domain={}&apikey={}'.format(domain, choice(apis))
     domains = []
     try:
@@ -43,7 +80,6 @@ def get_domain_info(domain, apis):
 
 # get domains related to an IP address
 def get_ip_info(ip, api_key):
-    result = "EMPTY"
     url = 'https://www.virustotal.com/vtapi/v2/ip-address/report?ip={}&apikey={}'.format(ip, api_key)
     domains = []
     try:
@@ -181,7 +217,6 @@ class Ui_MainWindow(QMainWindow):
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
 
-
         self.retranslateUi(MainWindow)
         self.load_B.clicked.connect(MainWindow.loadAPIs)
         self.Clear.clicked.connect(self.ResultListView.clear)
@@ -196,7 +231,12 @@ class Ui_MainWindow(QMainWindow):
 
         QMetaObject.connectSlotsByName(MainWindow)
         self.row_count = self.tableWidget.rowCount()
-        self.completed = 1
+        self.completed = 0
+        self.VT_Qline.setText("varzesh3.ir")
+        self.filepath.setText("/home/adam/Desktop/pyptools/api.txt")
+        self.threadpool = QThreadPool()
+        print("Multithreading with maximum %d threads" % self.threadpool.maxThreadCount())
+
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"VirusTotal Helper 0.1", None))
         self.VirusTotal_GB.setTitle(QCoreApplication.translate("MainWindow", u"VirusTotal Actions", None))
@@ -227,6 +267,8 @@ class Ui_MainWindow(QMainWindow):
     #  actions
     def vt_get_domains(self):
         self.ResultListView.clear()
+        self.tableWidget.clear()
+        self.progressBar.setValue(0)
         domain = self.VT_Qline.text()
         try:
             domains = get_domain_info(domain, self.APIS)
@@ -236,6 +278,8 @@ class Ui_MainWindow(QMainWindow):
 
     def vt_get_ips(self):
         self.ResultListView.clear()
+        self.tableWidget.clear()
+        self.progressBar.setValue(0)
         ip = self.VT_Qline.text()
         domains = get_ip_info(ip, choice(self.APIS))
         self.ResultListView.addItems(sorted(domains))
@@ -262,50 +306,40 @@ class Ui_MainWindow(QMainWindow):
             self.APIS = f.read().splitlines()
         self.label.setText("Loaded : OK !")
 
-    def TCP_connect(self, ip, port_number, delay):
-        TCPsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        TCPsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        TCPsock.settimeout(delay)
-        try:
-            TCPsock.connect((ip, port_number))
-            return str(port_number)
-        except:
-            return ""
-
-    def check_host_and_insert(self, host):
+    def add_host_to_table(self, host, portscan_result, ip_address):
         current_row = self.row_count
-        is_80_open = self.TCP_connect(host, 80, 2)
-
-        is_443_open = self.TCP_connect(host, 443, 2)
-        ip_address = "-"
-        try:
-            ip_address = socket.gethostbyname(host)
-        except Exception as e:
-            print(e)
-        data = []
         # insert empty row
         self.tableWidget.insertRow(current_row)
-        ports = "{},{}".format(is_80_open, is_443_open)
-        for k in ([0,1,2,3]):
+
+        cell_data = [host, portscan_result, ip_address, "BLANK"]
+        for k in ([0, 1, 2, 3]):
             self.tableWidget.setItem(
                 current_row,
                 k,
-                QTableWidgetItem(k),
+                QTableWidgetItem(cell_data[k]),
             )
+            if portscan_result != ',':
+                self.tableWidget.item(current_row, k).setBackground(QColor(66, 245, 66))
+            else:
+                self.tableWidget.item(current_row, k).setBackground(QColor(245, 105, 66))
 
-        self.completed += int(100*1/len(self.hosts))
-
+        self.completed += int(100 * 1 / len(self.hosts))
 
         self.progressBar.setValue(self.completed)
+
     def scan_hosts(self):
+
+        self.tableWidget.clear()
+        self.progressBar.setValue(0)
         self.hosts = []
         if self.ResultListView.count() > 2:
             for i in range(self.ResultListView.count()):
                 self.hosts.append(self.ResultListView.item(i).text())
-        for h in self.hosts:
-            print(h)
-            threading.Thread(target=self.check_host_and_insert, args=(h,)).start()
-            time.sleep(0.5)
+        self.get_thread = ScannerThread(self.hosts,[80,443])
+        self.connect(self.get_thread, PyQt5.QtCore.PYQT_SIGNAL('add_host_to_table(QString,QString,QString)'), self.host, self.result, self.ip_address)
+
+
+
 
     def open_link_in_browser(self):
         r = self.tableWidget.currentRow()
