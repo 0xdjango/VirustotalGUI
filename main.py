@@ -2,8 +2,8 @@ import socket
 import threading
 import traceback
 import PyQt5.QtCore
-from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir, QRunnable, pyqtSlot, QThreadPool, pyqtSignal, \
-    QObject, QTimer, QThread
+from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir, QRunnable, pyqtSlot, QThreadPool, \
+    QObject, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QLineEdit, QVBoxLayout, QWidget, QLCDNumber, QComboBox, \
     QCompleter, QGroupBox, QFormLayout, QPushButton, QPlainTextEdit, QMenuBar, QStatusBar, QListView, QListWidget, \
@@ -18,39 +18,56 @@ import webbrowser  # for opening cell double click into browser
 import csv
 
 
-class ScannerThread(QThread):
+class ScannerThread(QObject):
+    finished = PyQt5.QtCore.pyqtSignal()
+    progress_signal = pyqtSignal(int)
+    result_signal = pyqtSignal(str)
+
     def __init__(self, hosts, ports):
         QThread.__init__(self)
+        self.ports_result = ""
         self.hosts = hosts
-        self.ports = ports
-        self.ip_address = ""
         self.result = ""
+        self.ports = ports
+        self.progress = 0
+        self.hosts_number = len(self.hosts)
 
     def __del__(self):
         self.wait()
 
-    def scan(self,host):
-        TCPsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        TCPsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        TCPsock.settimeout(1)
-        try:
-            self.ip_address = socket.gethostbyname(host)
-        except Exception as e:
-            print(e)
-
-
+    def scan(self, host):
+        self.result += "{}:".format(host)
+        self.progress += 100 * (1 / self.hosts_number)
+        self.progress_signal.emit(self.progress)
         for port in self.ports:
             try:
+                TCPsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                TCPsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                TCPsock.settimeout(1)
                 TCPsock.connect((host, port))
-                self.result += str(port) + ","
+
+                TCPsock.close()
+                self.ports_result += "{},".format(str(port))
             except Exception as e:
-                print(e)
+                self.ports_result += ""
+                print("ERROR:", e)
+
+        try:
+            self.ip_address = socket.gethostbyname(host)
+            self.result += "{}:".format(self.ip_address)
+
+        except Exception as e:
+            self.result += "{}:".format(host)
+            print(e)
+        self.result += self.ports_result
+        self.result_signal.emit(self.result)
+        self.result = ""
+        self.ports_result = ""
+        self.finished.emit()
 
     def run(self):
         for h in self.hosts:
             self.scan(h)
-            self.emit(PyQt5.QtCore.PYQT_SIGNAL('add_host_to_table(QString,QString,QString)'), self.host, self.result, self.ip_address)
-
 
 # apis is list of virustotal APIs
 # get subdomains,siblings and resolutions of a domain
@@ -231,10 +248,8 @@ class Ui_MainWindow(QMainWindow):
         QMetaObject.connectSlotsByName(MainWindow)
         self.row_count = self.tableWidget.rowCount()
         self.completed = 0
-        self.VT_Qline.setText("varzesh3.ir")
-        self.filepath.setText("/home/adam/Desktop/pyptools/api.txt")
-        self.threadpool = QThreadPool()
-        print("Multithreading with maximum %d threads" % self.threadpool.maxThreadCount())
+        self.VT_Qline.setText("google.com")
+        self.filepath.setText("C:\\api.txt")
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"VirusTotal Helper 0.1", None))
@@ -266,7 +281,7 @@ class Ui_MainWindow(QMainWindow):
     #  actions
     def vt_get_domains(self):
         self.ResultListView.clear()
-        self.tableWidget.clear()
+        # self.tableWidget.clear()
         self.progressBar.setValue(0)
         domain = self.VT_Qline.text()
         try:
@@ -305,38 +320,50 @@ class Ui_MainWindow(QMainWindow):
             self.APIS = f.read().splitlines()
         self.label.setText("Loaded : OK !")
 
-    def add_host_to_table(self, host, portscan_result, ip_address):
+    def add_host_to_table(self, result):
         current_row = self.row_count
         # insert empty row
         self.tableWidget.insertRow(current_row)
-
+        print(result)
+        host, portscan_result, ip_address = result.split(":")
         cell_data = [host, portscan_result, ip_address, "BLANK"]
+        print(cell_data)
         for k in ([0, 1, 2, 3]):
             self.tableWidget.setItem(
                 current_row,
                 k,
                 QTableWidgetItem(cell_data[k]),
             )
-            if portscan_result != ',':
+            if portscan_result != '':
                 self.tableWidget.item(current_row, k).setBackground(QColor(66, 245, 66))
             else:
                 self.tableWidget.item(current_row, k).setBackground(QColor(245, 105, 66))
 
-        self.completed += int(100 * 1 / len(self.hosts))
 
-        self.progressBar.setValue(self.completed)
 
     def scan_hosts(self):
 
-        self.tableWidget.clear()
+        # self.tableWidget.clear()
         self.progressBar.setValue(0)
         self.hosts = []
         if self.ResultListView.count() > 2:
             for i in range(self.ResultListView.count()):
                 self.hosts.append(self.ResultListView.item(i).text())
-        self.get_thread = ScannerThread(self.hosts,[80,443])
-        self.connect(self.get_thread, PyQt5.QtCore.PYQT_SIGNAL('add_host_to_table(QString,QString,QString)'), self.host, self.result, self.ip_address)
+        self.thread = QThread()
+        self.worker = ScannerThread(hosts=self.hosts, ports=[80, 443])
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.result_signal.connect(self.add_host_to_table)
 
+        self.thread.start()
+        self.worker.finished.connect(
+
+            lambda: self.worker.progress_signal.connect(self.progressBar.setValue)
+
+        )
 
 
 
