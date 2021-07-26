@@ -1,7 +1,6 @@
 import socket
 import threading
 import traceback
-
 import PyQt5.QtCore
 from PyQt5.QtCore import QRect, QMetaObject, QCoreApplication, Qt, QDir, QRunnable, pyqtSlot, QThreadPool, pyqtSignal, \
     QObject, QTimer, QThread
